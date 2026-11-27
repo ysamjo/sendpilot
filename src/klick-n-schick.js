@@ -13,7 +13,7 @@
 
     // Verhindert Doppel-Injektion durch das alte Tampermonkey-Skript
     if (window.__knsPowerToolsLoaded) return;
-
+    if (document.documentElement) document.documentElement.dataset.spKnsActive = '1';
     // Extension-APIs können in Sonderfällen (z. B. sehr früher Injektion, Sandbox-Scope)
     // fehlen. Dann läuft alles ohne Persistenz weiter, statt zu crashen.
     const extension = (typeof chrome !== 'undefined' && chrome.runtime && chrome.storage)
@@ -1218,58 +1218,69 @@
             style.textContent = `
                 div.divgreyblock:has(.sp-kns-pdf-table) {
                     box-sizing: border-box !important;
-                    width: 100% !important;
+                    inline-size: 100% !important;
                     overflow-x: auto !important;
                 }
                 .sp-kns-pdf-table,
                 .sp-kns-pdf-header {
-                    width: 100% !important;
+                    inline-size: 100% !important;
                     table-layout: fixed !important;
-                    border-collapse: collapse !important;
+                    border-collapse: separate !important;
+                    border-spacing: 2px 0 !important;
+                }
+                .sp-kns-pdf-table td,
+                .sp-kns-pdf-header td,
+                .sp-kns-pdf-table th,
+                .sp-kns-pdf-header th {
+                    box-sizing: border-box !important;
                 }
                 .sp-kns-pdf-table tr > td:not(:last-child),
                 .sp-kns-pdf-header tr > td:not(:last-child) {
-                    min-width: 0 !important;
+                    min-inline-size: 0 !important;
                     overflow: hidden !important;
                     text-overflow: ellipsis !important;
+                    white-space: nowrap !important;
+                }
+                .sp-kns-pdf-table td.tdoverflow > span[data-kns-tracking-added] {
+                    display: inline !important;
                 }
                 .sp-kns-pdf-table tr > td:last-child,
                 .sp-kns-pdf-header tr > td:last-child,
                 .sp-kns-pdf-table tr > th:last-child,
                 .sp-kns-pdf-header tr > th:last-child,
                 td.sp-kns-pdf-cell {
-                    width: 215px !important;
-                    min-width: 215px !important;
-                    max-width: 215px !important;
                     white-space: nowrap !important;
-                    text-align: right !important;
+                    text-align: end !important;
                     vertical-align: middle !important;
-                    padding-left: 4px !important;
-                    padding-right: 4px !important;
+                    padding-inline: 4px !important;
                     overflow: visible !important;
+                }
+                td.sp-kns-pdf-cell a.openpdf,
+                .kns-pdf-actions,
+                .kns-pdf-actions > * {
+                    align-items: safe center !important;
                 }
                 td.sp-kns-pdf-cell a.openpdf {
                     display: inline-flex !important;
-                    align-items: center !important;
                     float: none !important;
                     vertical-align: middle !important;
-                    margin: 0 5px 0 0 !important;
+                    margin-inline: 0 5px !important;
                 }
                 .kns-pdf-actions {
                     display: inline-flex !important;
                     flex-wrap: nowrap !important;
-                    align-items: center !important;
+                    align-items: safe center !important;
                     gap: 4px !important;
-                    margin-left: 0 !important;
+                    margin-inline-start: 0 !important;
                     vertical-align: middle !important;
                     white-space: nowrap !important;
                 }
                 .kns-pdf-actions > * {
                     flex: 0 0 auto !important;
-                    width: auto !important;
-                    min-width: 0 !important;
-                    height: auto !important;
-                    min-height: 0 !important;
+                    inline-size: auto !important;
+                    min-inline-size: 0 !important;
+                    block-size: auto !important;
+                    min-block-size: 0 !important;
                     box-sizing: border-box !important;
                     padding: 3px 6px !important;
                     font-size: 11px !important;
@@ -1278,12 +1289,29 @@
                     border-radius: 4px !important;
                     float: none !important;
                     display: inline-flex !important;
-                    align-items: center !important;
+                    align-items: safe center !important;
                     justify-content: center !important;
                 }
                 .kns-pdf-actions > button {
                     border: 0 !important;
+                    background-image: none !important;
+                    color: #ffffff !important;
                     cursor: pointer !important;
+                }
+                .kns-pdf-actions > button.kns-pdf-btn-print {
+                    background: #059669 !important;
+                    font-weight: 700 !important;
+                }
+                .kns-pdf-actions > button.kns-pdf-btn-a4 {
+                    background: #2563eb !important;
+                    font-weight: 600 !important;
+                }
+                .kns-pdf-actions > button.kns-pdf-btn-a6 {
+                    background: #475569 !important;
+                    font-weight: 600 !important;
+                }
+                .kns-pdf-actions > button:hover {
+                    filter: brightness(0.92) !important;
                 }
                 .kns-pdf-actions > a {
                     color: #64748b !important;
@@ -1297,8 +1325,18 @@
         const markedPdfTables = new Set();
         const openPdfLinks = document.querySelectorAll('a.openpdf[dataid]');
         openPdfLinks.forEach((link) => {
+            // Rechnungen-Seite: keine Paketschein-Leiste und keine Spaltenumverteilung
+            const isInvoicesContext = currentPath.includes('meinerechnungen')
+                || Boolean(link.closest('#ContentPlaceHolder1_divRechnungenResult'));
+            if (isInvoicesContext) {
+                link.style.float = 'none';
+                link.parentElement?.querySelectorAll('.kns-pdf-actions').forEach((node) => node.remove());
+                return;
+            }
+
             const cell = link.closest('td');
             const table = cell?.closest('table');
+
             if (cell && table) {
                 cell.classList.add('sp-kns-pdf-cell');
                 table.classList.add('sp-kns-pdf-table');
@@ -1313,22 +1351,82 @@
                     }
                     if (headerTable) headerTable.classList.add('sp-kns-pdf-header');
 
-                    [table, headerTable].filter(Boolean).forEach((tbl) => {
-                        tbl.querySelectorAll('tr').forEach((row) => {
-                            const lastCell = row.lastElementChild;
-                            if (!lastCell || (lastCell.tagName !== 'TD' && lastCell.tagName !== 'TH')) return;
+                    const tblWidth = table.getBoundingClientRect().width
+                        || headerTable?.getBoundingClientRect().width
+                        || 918;
+                    const actionPct = Math.min(34, Math.max(20.5, Math.ceil((190 / tblWidth) * 1000) / 10));
+                    const restPct = Math.max(50, 100 - actionPct);
+
+                    const applyWidths = (tbl) => {
+                        if (!tbl || tbl.dataset.spWidthsApplied === 'true') return;
+                        const rows = Array.from(tbl.querySelectorAll('tr'));
+                        if (!rows.length) return;
+                        const firstRow = rows[0];
+                        const firstCells = Array.from(firstRow.children)
+                            .filter((c) => c.tagName === 'TD' || c.tagName === 'TH');
+                        const N = firstCells.length;
+                        if (N < 2) return;
+
+                        let pcts = [];
+                        if (tbl.dataset.spOrigWidthPct) {
+                            try { pcts = JSON.parse(tbl.dataset.spOrigWidthPct); } catch (e) { pcts = []; }
+                        }
+                        if (!Array.isArray(pcts) || pcts.length !== N - 1) {
+                            let allValid = true;
+                            pcts = [];
+                            for (let i = 0; i < N - 1; i++) {
+                                const c = firstCells[i];
+                                const w = c.style.width || c.getAttribute('width') || '';
+                                const pct = parseFloat(w);
+                                if (!Number.isFinite(pct) || pct <= 0) {
+                                    pcts.push(1);
+                                    allValid = false;
+                                } else {
+                                    pcts.push(pct);
+                                }
+                            }
+                            if (!allValid) {
+                                pcts = pcts.map(() => 1);
+                            }
+                            tbl.dataset.spOrigWidthPct = JSON.stringify(pcts);
+                        }
+                        const S = pcts.reduce((a, b) => a + b, 0) || pcts.length;
+                        const scaledPcts = pcts.map((p) => (restPct * (p / S)).toFixed(2) + '%');
+                        const actionPctStr = actionPct.toFixed(2) + '%';
+
+                        rows.forEach((row) => {
+                            const cells = Array.from(row.children)
+                                .filter((c) => c.tagName === 'TD' || c.tagName === 'TH');
+                            if (cells.length !== N) return;
+                            for (let i = 0; i < N - 1; i++) {
+                                const c = cells[i];
+                                c.removeAttribute('width');
+                                c.style.width = scaledPcts[i];
+                            }
+                            const lastCell = cells[N - 1];
                             lastCell.removeAttribute('width');
-                            lastCell.style.width = '';
+                            lastCell.style.width = actionPctStr;
                             lastCell.style.minWidth = '';
                             lastCell.style.maxWidth = '';
                         });
-                        const cols = tbl.querySelectorAll('col');
-                        const lastCol = cols[cols.length - 1];
-                        if (lastCol) {
-                            lastCol.removeAttribute('width');
-                            lastCol.style.width = '';
+
+                        const cols = Array.from(tbl.querySelectorAll('col'));
+                        if (cols.length) {
+                            for (let i = 0; i < cols.length - 1 && i < scaledPcts.length; i++) {
+                                const col = cols[i];
+                                col.removeAttribute('width');
+                                col.style.width = scaledPcts[i];
+                            }
+                            const lastCol = cols[cols.length - 1];
+                            if (lastCol) {
+                                lastCol.removeAttribute('width');
+                                lastCol.style.width = actionPctStr;
+                            }
                         }
-                    });
+                        tbl.dataset.spWidthsApplied = 'true';
+                    };
+
+                    [table, headerTable].filter(Boolean).forEach(applyWidths);
                 }
             }
 
@@ -1351,22 +1449,9 @@
             // 1. Drucken (Zentriert A4)
             const printBtn = document.createElement('button');
             printBtn.type = 'button';
-            printBtn.innerHTML = 'Drucken';
+            printBtn.className = 'kns-pdf-btn-print';
+            printBtn.textContent = 'Drucken';
             printBtn.title = 'Paketschein zuschneiden (ohne Quittung), zentrieren & sofort drucken';
-            printBtn.style.cssText = `
-                background: #059669;
-                color: #ffffff;
-                border: none;
-                border-radius: 4px;
-                padding: 3px 6px;
-                font-size: 10px;
-                font-weight: 700;
-                line-height: 1.4;
-                white-space: nowrap;
-                flex: 0 0 auto;
-                cursor: pointer;
-                transition: background 0.15s;
-            `;
             printBtn.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -1376,21 +1461,9 @@
             // 2. A4 Zentriert Download
             const dlA4Btn = document.createElement('button');
             dlA4Btn.type = 'button';
-            dlA4Btn.innerHTML = 'A4';
+            dlA4Btn.className = 'kns-pdf-btn-a4';
+            dlA4Btn.textContent = 'A4';
             dlA4Btn.title = 'Paketschein zuschneiden & als zentriertes DIN A4 PDF herunterladen (Keynote-Workflow)';
-            dlA4Btn.style.cssText = `
-                background: #2563eb;
-                color: #ffffff;
-                border: none;
-                border-radius: 4px;
-                padding: 3px 5px;
-                font-size: 10px;
-                font-weight: 600;
-                line-height: 1.4;
-                white-space: nowrap;
-                flex: 0 0 auto;
-                cursor: pointer;
-            `;
             dlA4Btn.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -1400,21 +1473,9 @@
             // 3. A6 Label Download
             const dlA6Btn = document.createElement('button');
             dlA6Btn.type = 'button';
-            dlA6Btn.innerHTML = 'A6';
+            dlA6Btn.className = 'kns-pdf-btn-a6';
+            dlA6Btn.textContent = 'A6';
             dlA6Btn.title = 'Als reines DIN A6 Etikett für Thermodrucker herunterladen';
-            dlA6Btn.style.cssText = `
-                background: #475569;
-                color: #ffffff;
-                border: none;
-                border-radius: 4px;
-                padding: 3px 5px;
-                font-size: 10px;
-                font-weight: 600;
-                line-height: 1.4;
-                white-space: nowrap;
-                flex: 0 0 auto;
-                cursor: pointer;
-            `;
             dlA6Btn.addEventListener('click', (e) => {
                 e.preventDefault();
                 e.stopPropagation();
@@ -1572,24 +1633,27 @@
                 .mainmenu ul {
                     display: flex !important;
                     flex-wrap: nowrap !important;
-                    align-items: center !important;
+                    align-items: safe center !important;
                     justify-content: space-between !important;
+                    gap: 0 !important;
                     margin: 0 !important;
                     padding: 0 !important;
-                    width: 100% !important;
+                    inline-size: 100% !important;
                     box-sizing: border-box !important;
                 }
                 .mainmenu li {
                     float: none !important;
-                    flex: 0 0 auto !important;
+                    flex: 0 1 auto !important;
+                    min-inline-size: 0 !important;
                     display: block !important;
                 }
                 .mainmenu li a {
-                    padding: 8px 5px !important;
-                    font-size: 12px !important;
+                    padding: 8px 4px !important;
+                    font-size: 11px !important;
                     white-space: nowrap !important;
                 }
-                .sp-kns-hidden {
+                .sp-kns-hidden,
+                .mainmenu li.sp-kns-hidden {
                     display: none !important;
                 }
             `;
@@ -1604,31 +1668,37 @@
             if (!headerNavi.classList.contains('sp-kns-hidden')) {
                 headerNavi.classList.add('sp-kns-hidden');
             }
-            items = headerLinks.map((a, idx) => ({
-                id: `sp_mmi_sub_${idx}`,
-                label: (a.textContent || '').trim(),
-                href: a.getAttribute('href') || '#',
-                active: a.classList.contains('selected')
-            }));
+            items = headerLinks.map((a, idx) => {
+                let href = a.getAttribute('href') || '#';
+                try {
+                    href = new URL(href, window.location.href).pathname;
+                } catch (e) {}
+                return {
+                    id: `sp_mmi_sub_${idx}`,
+                    label: (a.textContent || '').trim(),
+                    href,
+                    active: a.classList.contains('selected')
+                };
+            });
         } else {
             items = [
                 {
                     id: 'sp_mmi_sub_0',
                     label: 'Meine Daten',
-                    href: '/portal/meinklicknschick',
-                    active: currentPath.includes('meinklicknschick') || currentPath.includes('meinedaten')
+                    href: '/portal/meinklicknschick/meinedaten',
+                    active: currentPath.includes('meinedaten') || /\/meinklicknschick\/?$/.test(currentPath)
                 },
                 {
                     id: 'sp_mmi_sub_1',
                     label: 'Meine Bestellungen',
-                    href: '/portal/bestellungen',
-                    active: currentPath.includes('bestellungen')
+                    href: '/portal/meinklicknschick/meinerechnungen',
+                    active: currentPath.includes('meinerechnungen') || currentPath.includes('bestellungen')
                 },
                 {
                     id: 'sp_mmi_sub_2',
                     label: 'Meine Paketscheine',
-                    href: '/portal/meinepaketscheine.aspx',
-                    active: currentPath.includes('meinepaketscheine') || currentPath.includes('paketscheine')
+                    href: '/portal/meinklicknschick/meinepaketscheine',
+                    active: currentPath.includes('meinepaketscheine')
                 }
             ];
         }
@@ -1679,8 +1749,8 @@
 
         let removedAny = false;
         leftCells.forEach((td) => {
-            const isPhoneSidebar = td.id === 'ContentPlaceHolder1_info'
-                || Boolean(td.querySelector('.info_gold, .info_question, .info_image'))
+            if (td.querySelector('.loginpanel, .uc_login')) return;
+            const isPhoneSidebar = Boolean(td.querySelector('.info_gold, .info_question, .info_image'))
                 || (td.textContent || '').includes('86 38 98 10 89');
             if (!isPhoneSidebar) return;
 
@@ -1917,11 +1987,11 @@
         setupAutoEbayImport();
         setupAlwaysDpd();
         setupAutoPdfDownload();
+        setupPortalTopMenu();
+        setupRemovePhoneSidebar();
         setupCopyTools();
         setupAutoCheckout();
         setupQualityOfLife();
-        setupPortalTopMenu();
-        setupRemovePhoneSidebar();
         setupControlPanel();
     }
 

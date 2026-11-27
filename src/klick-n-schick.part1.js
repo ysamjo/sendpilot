@@ -13,7 +13,7 @@
 
     // Verhindert Doppel-Injektion durch das alte Tampermonkey-Skript
     if (window.__knsPowerToolsLoaded) return;
-
+    if (document.documentElement) document.documentElement.dataset.spKnsActive = '1';
     // Extension-APIs können in Sonderfällen (z. B. sehr früher Injektion, Sandbox-Scope)
     // fehlen. Dann läuft alles ohne Persistenz weiter, statt zu crashen.
     const extension = (typeof chrome !== 'undefined' && chrome.runtime && chrome.storage)

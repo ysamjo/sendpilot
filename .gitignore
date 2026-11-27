@@ -1,0 +1,4 @@
+dist/
+.screenshots/
+.worktrees/
+.DS_Store
